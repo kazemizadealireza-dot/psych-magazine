@@ -265,7 +265,7 @@ function bindAuth(kind) {
       }
     } catch (err) {
       const t = String(err.message || err);
-      say(/Invalid login/i.test(t) ? 'ایمیل یا رمز عبور درست نیست.' : /registered/i.test(t) ? 'با این ایمیل قبلاً حساب ساخته شده است.' : /confirm/i.test(t) ? 'ایمیلتان هنوز تأیید نشده است.' : 'خطا: ' + t);
+      say(/Invalid login/i.test(t) ? 'ایمیل یا رمز عبور درست نیست.' : /registered/i.test(t) ? 'با این ایمیل قبلاً حساب ساخته شده است.' : /confirm/i.test(t) ? 'ایمیلتان هنوز تأیید نشده است.' : /invalid/i.test(t) ? 'این ایمیل پذیرفته نشد؛ ایمیل دیگری را امتحان کنید.' : /rate limit/i.test(t) ? 'درخواست‌ها زیاد بوده؛ چند دقیقهٔ دیگر دوباره امتحان کنید.' : 'خطا: ' + t);
     } finally { b.disabled = false; }
   };
 }
