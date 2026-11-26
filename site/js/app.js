@@ -250,7 +250,7 @@ function bindAuth(kind) {
     if (kind === 'signup' && d.password.length < 8) return say('رمز عبور باید دست‌کم ۸ نویسه باشد.');
     if (!d.password) return say('رمز عبور را وارد کنید.');
     if (!SB) return say('سامانهٔ حساب کاربری هنوز به پایگاه داده وصل نشده است.');
-    const b = f.querySelector('button'); b.disabled = true;
+    const b = f.querySelector('button'); b.disabled = true; try { localStorage.removeItem(LOGIN_KEY); } catch (e) {}
     try {
       if (kind === 'signup') {
         const { data, error } = await SB.auth.signUp({ email: d.email, password: d.password,
@@ -269,15 +269,23 @@ function bindAuth(kind) {
     } finally { b.disabled = false; }
   };
 }
-async function paintAuth() {
-  const box = $('#authBox'); if (!SB || !box) return;
-  const { data } = await SB.auth.getSession(); const u = data.session && data.session.user;
+// نشست کاربر ۲۴ ساعت معتبر است؛ پس از آن دوباره باید وارد شود.
+const LOGIN_KEY = 'mag-login-at', DAY = 24 * 60 * 60 * 1000;
+function paintAuth(u) {
+  const box = $('#authBox'); if (!box) return;
   if (!u) { box.innerHTML = '<a class="btn small ghost2" href="#/login">ورود</a><a class="btn small" href="#/signup">ثبت‌نام</a>'; return; }
   box.innerHTML = `<span class="uname">${esc((u.user_metadata || {}).first_name || u.email)}</span><button class="btn small ghost2" id="logoutBtn">خروج</button>`;
   $('#logoutBtn').onclick = () => SB.auth.signOut();
 }
-if (SB) SB.auth.onAuthStateChange(() => paintAuth());
-paintAuth();
+if (SB) SB.auth.onAuthStateChange((ev, session) => {
+  // هیچ فراخوانی await به SB داخل این تابع نباشد؛ وگرنه کتابخانه قفل می‌شود.
+  let at = 0; try { at = +localStorage.getItem(LOGIN_KEY) || 0; } catch (e) {}
+  if (ev === 'SIGNED_IN' && !at) { at = Date.now(); try { localStorage.setItem(LOGIN_KEY, at); } catch (e) {} }
+  if (ev === 'SIGNED_OUT') { try { localStorage.removeItem(LOGIN_KEY); } catch (e) {} }
+  if (session && at && Date.now() - at > DAY) { paintAuth(null); setTimeout(() => SB.auth.signOut(), 0); return; }
+  if (session && !at) { try { localStorage.setItem(LOGIN_KEY, Date.now()); } catch (e) {} }
+  paintAuth(session && session.user);
+});
 addEventListener('hashchange', route);
 load().then(route);
 })();
