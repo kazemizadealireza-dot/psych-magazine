@@ -192,11 +192,13 @@ function reveal() {
 function route() {
   const h = location.hash.replace(/^#/, '') || '/';
   const [, p, id] = h.split('/');
-  const html = !p ? home() : p === 'c' ? category(id) : p === 'a' ? article(id) : p === 'issue' ? issue() : p === 'tools' ? tools() : p === 'about' ? about() : p === 'join' ? join() : notFound();
+  const html = !p ? home() : p === 'c' ? category(id) : p === 'a' ? article(id) : p === 'issue' ? issue() : p === 'tools' ? tools() : p === 'about' ? about() : p === 'join' ? join() : p === 'login' ? loginPage() : p === 'signup' ? signupPage() : notFound();
   const app = $('#app'); app.style.animation = 'none'; app.offsetHeight; app.style.animation = '';
   app.innerHTML = html; window.scrollTo(0, 0);
   if (p === 'a') afterArticle();
+  if (p === 'login' || p === 'signup') bindAuth(p);
   document.querySelectorAll('nav a').forEach(a => a.classList.toggle('on', a.getAttribute('href') === '#' + h || (p === 'c' && a.getAttribute('href') === '#/c/' + id)));
+  const ddb = document.querySelector('nav .ddb'); if (ddb) ddb.classList.toggle('on', p === 'c');
   $('#nav').classList.remove('open');
   document.title = (p === 'a' ? (ARTS.find(a => a.id === id) || {}).title + ' | ' : '') + 'مجلهٔ روان‌شناسی انتخاب بهتر';
   reveal();
@@ -211,7 +213,71 @@ $('#searchBtn').onclick = () => { $('#search').classList.add('open'); $('#q').fo
 $('#search').onclick = e => { if (e.target.id === 'search') e.target.classList.remove('open'); };
 $('#q').oninput = e => { const q = e.target.value.trim(); $('#sres').innerHTML = q ? ARTS.filter(a => (a.title + a.brief).includes(q)).map(a => `<a href="#/a/${a.id}" onclick="document.getElementById('search').classList.remove('open')">${esc(a.title)}</a>`).join('') || '<p style="padding:10px">نتیجه‌ای پیدا نشد.</p>' : ''; };
 addEventListener('keydown', e => { if (e.key === 'Escape') $('#search').classList.remove('open'); });
-$('#nav').innerHTML = NAV.map(([h, t]) => `<a href="${h}">${t}</a>`).join('');
+const lk = ([h, t]) => `<a href="${h}">${t}</a>`;
+$('#nav').innerHTML = lk(NAV[0]) + `<div class="dd"><button type="button" class="ddb" aria-haspopup="true" aria-expanded="false">دسته‌بندی‌ها <span>▾</span></button><div class="ddm">${NAV.slice(1, 7).map(lk).join('')}</div></div>` + NAV.slice(7).map(lk).join('');
+const dd = $('#nav .dd');
+dd.querySelector('.ddb').onclick = e => { e.stopPropagation(); const o = dd.classList.toggle('open'); e.currentTarget.setAttribute('aria-expanded', o); };
+addEventListener('click', () => dd.classList.remove('open'));
+dd.querySelectorAll('.ddm a').forEach(a => a.addEventListener('click', () => { dd.classList.remove('open'); $('#nav').classList.remove('open'); }));
+
+// ---- ورود و ثبت‌نام کاربران (Supabase Auth) ----
+const CFG = window.MAG_CONFIG || {};
+const SB = (CFG.SUPABASE_URL && CFG.SUPABASE_ANON_KEY && window.supabase) ? supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY) : null;
+const fld = (n, l, t, ex = '') => `<label class="af"><span>${l}</span><input name="${n}" type="${t}" required ${ex}></label>`;
+const authShell = (title, sub, body, foot) => `<section class="wrap authpg"><div class="authcard rv in"><h1>${title}</h1><p class="asub">${sub}</p>${body}<p class="amsg" id="amsg" role="status"></p><p class="afoot">${foot}</p></div></section>`;
+function loginPage() {
+  return authShell('ورود به حساب', 'خوش برگشتید؛ ایمیل و رمز عبورتان را وارد کنید.',
+    `<form id="authForm" novalidate>${fld('email', 'ایمیل', 'email', 'autocomplete="email" dir="ltr"')}${fld('password', 'رمز عبور', 'password', 'autocomplete="current-password" dir="ltr"')}<button class="btn" type="submit">ورود</button></form>`,
+    'حساب ندارید؟ <a href="#/signup">ثبت‌نام کنید</a>');
+}
+function signupPage() {
+  return authShell('ساخت حساب کاربری', 'برای ساخت حساب، اطلاعات زیر را کامل کنید.',
+    `<form id="authForm" novalidate><div class="af2">${fld('first', 'نام', 'text', 'autocomplete="given-name"')}${fld('last', 'نام خانوادگی', 'text', 'autocomplete="family-name"')}</div>${fld('phone', 'شمارهٔ تلفن همراه', 'tel', 'autocomplete="tel" dir="ltr" placeholder="09xxxxxxxxx" inputmode="numeric"')}${fld('email', 'ایمیل', 'email', 'autocomplete="email" dir="ltr"')}${fld('password', 'رمز عبور (دست‌کم ۸ نویسه)', 'password', 'autocomplete="new-password" dir="ltr" minlength="8"')}<button class="btn" type="submit">ساخت حساب</button></form>`,
+    'حساب دارید؟ <a href="#/login">وارد شوید</a>');
+}
+const toEn = v => v.replace(/[۰-۹]/g, d => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d)).replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)).trim();
+function bindAuth(kind) {
+  const f = $('#authForm'), m = $('#amsg');
+  const say = (t, ok) => { m.textContent = t; m.className = 'amsg ' + (ok ? 'ok' : 'err'); };
+  f.onsubmit = async e => {
+    e.preventDefault();
+    const d = Object.fromEntries(new FormData(f)); Object.keys(d).forEach(k => d[k] = k === 'password' ? d[k] : toEn(d[k]));
+    if (kind === 'signup') {
+      if (!d.first || !d.last) return say('نام و نام خانوادگی را وارد کنید.');
+      if (!/^09\d{9}$/.test(d.phone)) return say('شمارهٔ تلفن باید ۱۱ رقم و با ۰۹ شروع شود.');
+    }
+    if (!/^\S+@\S+\.\S+$/.test(d.email)) return say('ایمیل معتبر نیست.');
+    if (kind === 'signup' && d.password.length < 8) return say('رمز عبور باید دست‌کم ۸ نویسه باشد.');
+    if (!d.password) return say('رمز عبور را وارد کنید.');
+    if (!SB) return say('سامانهٔ حساب کاربری هنوز به پایگاه داده وصل نشده است.');
+    const b = f.querySelector('button'); b.disabled = true;
+    try {
+      if (kind === 'signup') {
+        const { data, error } = await SB.auth.signUp({ email: d.email, password: d.password,
+          options: { data: { first_name: d.first, last_name: d.last, full_name: d.first + ' ' + d.last, phone: d.phone } } });
+        if (error) throw error;
+        if (data.session) { say('حساب ساخته شد و وارد شدید.', 1); setTimeout(() => location.hash = '#/', 900); }
+        else say('حساب ساخته شد. برای فعال شدن، روی پیوندی که به ایمیلتان فرستادیم بزنید.', 1);
+      } else {
+        const { error } = await SB.auth.signInWithPassword({ email: d.email, password: d.password });
+        if (error) throw error;
+        say('وارد شدید.', 1); setTimeout(() => location.hash = '#/', 700);
+      }
+    } catch (err) {
+      const t = String(err.message || err);
+      say(/Invalid login/i.test(t) ? 'ایمیل یا رمز عبور درست نیست.' : /registered/i.test(t) ? 'با این ایمیل قبلاً حساب ساخته شده است.' : /confirm/i.test(t) ? 'ایمیلتان هنوز تأیید نشده است.' : 'خطا: ' + t);
+    } finally { b.disabled = false; }
+  };
+}
+async function paintAuth() {
+  const box = $('#authBox'); if (!SB || !box) return;
+  const { data } = await SB.auth.getSession(); const u = data.session && data.session.user;
+  if (!u) { box.innerHTML = '<a class="btn small ghost2" href="#/login">ورود</a><a class="btn small" href="#/signup">ثبت‌نام</a>'; return; }
+  box.innerHTML = `<span class="uname">${esc((u.user_metadata || {}).first_name || u.email)}</span><button class="btn small ghost2" id="logoutBtn">خروج</button>`;
+  $('#logoutBtn').onclick = () => SB.auth.signOut();
+}
+if (SB) SB.auth.onAuthStateChange(() => paintAuth());
+paintAuth();
 addEventListener('hashchange', route);
 load().then(route);
 })();
